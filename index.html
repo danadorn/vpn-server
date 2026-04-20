@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VPN Server Setup on pfSense</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #f0f0f0;
+    font-family: Arial, sans-serif;
+    padding: 40px 20px 80px;
+  }
+
+  .page {
+    background: white;
+    max-width: 816px;
+    margin: 0 auto;
+    padding: 72px 90px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    min-height: 1056px;
+  }
+
+  h1.doc-title {
+    font-size: 26px;
+    font-weight: 400;
+    color: #000;
+    margin-bottom: 6px;
+  }
+
+  .subtitle {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 4px;
+  }
+
+  .meta {
+    font-size: 12px;
+    color: #999;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e0e0e0;
+  }
+
+  h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin: 28px 0 8px;
+  }
+
+  h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin: 18px 0 6px;
+  }
+
+  p {
+    font-size: 13px;
+    line-height: 1.7;
+    color: #222;
+    margin-bottom: 10px;
+  }
+
+  ul {
+    margin: 6px 0 12px 22px;
+  }
+
+  ul li {
+    font-size: 13px;
+    line-height: 1.8;
+    color: #222;
+  }
+
+  ol {
+    margin: 6px 0 12px 22px;
+  }
+
+  ol li {
+    font-size: 13px;
+    line-height: 1.9;
+    color: #222;
+    margin-bottom: 4px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 12.5px;
+  }
+
+  th {
+    background: #f8f9fa;
+    text-align: left;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    font-weight: 600;
+    color: #333;
+  }
+
+  td {
+    padding: 7px 12px;
+    border: 1px solid #e8e8e8;
+    color: #333;
+    vertical-align: top;
+  }
+
+  tr:nth-child(even) td {
+    background: #fafafa;
+  }
+
+  code {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    background: #f4f4f4;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #c7254e;
+  }
+
+  .code-block {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    background: #f6f8fa;
+    border: 1px solid #e1e4e8;
+    border-radius: 4px;
+    padding: 12px 14px;
+    margin: 8px 0 16px;
+    line-height: 1.6;
+    color: #24292e;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .section-divider {
+    border: none;
+    border-top: 1px solid #e8e8e8;
+    margin: 28px 0;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+ <!-- 1. Overview -->
+  <h2>1. Project Overview</h2>
+
+  <h3>What is a VPN?</h3>
+  <p>A Virtual Private Network (VPN) creates a secure, encrypted tunnel over a public network like the Internet. It lets remote users connect to a private network as if they were physically there, ensuring confidentiality, integrity, and authentication of all data.</p>
+  <ul>
+    <li>Secure remote access for employees working from home</li>
+    <li>Connecting multiple office branches (site-to-site VPN)</li>
+    <li>Protecting data transmitted over untrusted networks</li>
+    <li>Remote management of network infrastructure</li>
+  </ul>
+
+  <h3>What is pfSense?</h3>
+  <p>pfSense is a free, open-source firewall/router based on FreeBSD, developed by Netgate. It's widely used in enterprise, education, and home lab environments.</p>
+  <ul>
+    <li>Stateful packet inspection firewall</li>
+    <li>Supports OpenVPN, IPsec, WireGuard, L2TP</li>
+    <li>Web-based GUI management (WebConfigurator) via HTTPS</li>
+    <li>Runs on physical hardware or VMs (VMware, VirtualBox, Hyper-V)</li>
+  </ul>
+
+  <hr class="section-divider">
+
+  <!-- 2. Network Architecture -->
+  <h2>2. Network Architecture</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Component</th>
+        <th>Interface</th>
+        <th>IP Address</th>
+        <th>VMware Adapter</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>pfSense WAN</td><td>em0</td><td>192.168.186.134/24 (DHCP)</td><td>VMnet8 (NAT)</td></tr>
+      <tr><td>pfSense LAN</td><td>em1</td><td>192.168.1.1/24 (Static)</td><td>VMnet1 (Host-Only)</td></tr>
+      <tr><td>Windows Host</td><td>VMnet1</td><td>192.168.1.100/24 (Static)</td><td>VMware VMnet1</td></tr>
+      <tr><td>OpenVPN Tunnel</td><td>tun0</td><td>10.0.8.0/24</td><td>Virtual (VPN)</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="section-divider">
+
+  <!-- 3. Implementation -->
+  <h2>3. Implementation Steps</h2>
+
+  <h3>Step 1 — Install pfSense on VMware</h3>
+  <ol>
+    <li>Download pfSense 2.7.2 ISO from <code>pfsense.org/download</code></li>
+    <li>Create VM: 2 vCPUs, 2 GB RAM, 20 GB disk, 64-bit FreeBSD</li>
+    <li>Add Network Adapter 1 → NAT (VMnet8) and Adapter 2 → Host-Only (VMnet1)</li>
+    <li>Boot from ISO, follow installer, assign WAN=em0 / LAN=em1 from console</li>
+  </ol>
+
+  <h3>Step 2 — Configure WAN & LAN</h3>
+  <ol>
+    <li>WAN (em0): set to DHCP → auto-receives 192.168.186.134/24</li>
+    <li>LAN (em1): set static IP 192.168.1.1, subnet /24</li>
+  </ol>
+
+  <h3>Step 3 — Access pfSense WebGUI</h3>
+  <ol>
+    <li>Set Windows PC VMnet1: IP=192.168.1.100, GW=192.168.1.1, DNS=8.8.8.8</li>
+    <li>Open browser → <code>https://192.168.1.1</code> → accept cert → login: <code>admin / pfsense</code></li>
+    <li>Run Setup Wizard: hostname, DNS 8.8.8.8/8.8.4.4, timezone Asia/Phnom_Penh, change password</li>
+  </ol>
+
+  <h3>Step 4 — Set Up OpenVPN Server</h3>
+  <ol>
+    <li>Go to VPN → OpenVPN → Wizards → Authentication: Local User Access</li>
+    <li>Create CA: name = <code>pfSense-CA</code>, key length 2048</li>
+    <li>Server settings: Protocol = UDP, Interface = WAN, Port = 1194</li>
+    <li>Tunnel Network: <code>10.0.8.0/24</code> | Local Network: <code>192.168.1.0/24</code></li>
+    <li>Enable Redirect Gateway + DNS — wizard auto-creates firewall rules</li>
+  </ol>
+
+  <h3>Step 5 — Create User & Export Config</h3>
+  <ol>
+    <li>System → User Manager → Add: set username/password, create user certificate (<code>vpnuser-cert</code>)</li>
+    <li>Install package: System → Package Manager → <code>openvpn-client-export</code></li>
+    <li>VPN → OpenVPN → Client Export → download <code>.ovpn</code> file</li>
+    <li>Install OpenVPN Connect, import the <code>.ovpn</code>, connect, verify IP in <code>10.0.8.x</code> range</li>
+  </ol>
+
+  <hr class="section-divider">
+
+  <!-- 4. Tools -->
+  <h2>4. Devices & Software</h2>
+
+  <table>
+    <thead>
+      <tr><th>Tool / Software</th><th>Version</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>pfSense Community Edition</td><td>2.7.2-RELEASE</td><td>Firewall & VPN Server OS</td></tr>
+      <tr><td>VMware Workstation / Player</td><td>17.x or later</td><td>Virtualization platform</td></tr>
+      <tr><td>OpenVPN Client</td><td>2.6.x</td><td>VPN client for remote connection</td></tr>
+      <tr><td>openvpn-client-export</td><td>Latest</td><td>Export .ovpn config files</td></tr>
+      <tr><td>Google Chrome / Firefox</td><td>Latest</td><td>Access pfSense WebGUI</td></tr>
+      <tr><td>Windows 10/11</td><td>Build 22H2+</td><td>Host operating system</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="section-divider">
+
+  <!-- 5. OS Support -->
+  <h2>5. Supported Operating Systems (VPN Client)</h2>
+
+  <table>
+    <thead>
+      <tr><th>OS</th><th>Client Software</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Windows 10 / 11</td><td>OpenVPN Connect / GUI</td></tr>
+      <tr><td>macOS 12+ (Monterey+)</td><td>OpenVPN Connect / Tunnelblick</td></tr>
+      <tr><td>Ubuntu / Debian</td><td><code>apt install openvpn</code></td></tr>
+      <tr><td>CentOS / RHEL / Fedora</td><td><code>yum/dnf install openvpn</code></td></tr>
+      <tr><td>Android 8.0+</td><td>OpenVPN Connect (Play Store)</td></tr>
+      <tr><td>iOS 12+</td><td>OpenVPN Connect (App Store)</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="section-divider">
+
+  <!-- 6. Benefits & Drawbacks -->
+  <h2>6. Benefits & Drawbacks</h2>
+
+  <h3>Benefits</h3>
+  <ul>
+    <li>AES-256-CBC encryption protects all traffic on public networks</li>
+    <li>Remote access to LAN resources (192.168.1.0/24) from anywhere</li>
+    <li>Centralized management via pfSense WebGUI</li>
+    <li>Completely free — no per-user licensing fees (Community Edition)</li>
+    <li>Cross-platform clients: Windows, macOS, Linux, Android, iOS</li>
+    <li>Built-in session monitoring at Status → OpenVPN</li>
+  </ul>
+
+  <h3>Drawbacks</h3>
+  <ul>
+    <li>Encryption adds CPU overhead, reducing maximum throughput</li>
+    <li>Setup complexity — CA, certificates, and firewall rules require networking knowledge</li>
+    <li>Single point of failure without HA (CARP) setup</li>
+    <li>No official support in CE — relies on community forums</li>
+    <li>SSL certificates expire and must be renewed manually</li>
+  </ul>
+
+  <hr class="section-divider">
+
+  <!-- 7. CE vs Plus -->
+  <h2>7. pfSense CE vs. pfSense Plus</h2>
+
+  <table>
+    <thead>
+      <tr><th>Feature</th><th>CE (Free)</th><th>Plus (Paid)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Cost</td><td>Free forever</td><td>~$129/year or hardware bundles</td></tr>
+      <tr><td>OpenVPN</td><td>Full support</td><td>Full support</td></tr>
+      <tr><td>IPsec / WireGuard</td><td>Yes</td><td>Yes + enhanced features</td></tr>
+      <tr><td>Official Support</td><td>Community forums only</td><td>Netgate TAC (phone/email/ticket)</td></tr>
+      <tr><td>REST API</td><td>Limited</td><td>Full access</td></tr>
+      <tr><td>Best For</td><td>Labs, home, small business</td><td>Enterprise, production, ISP</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="section-divider">
+
+  <!-- 8. Conclusion -->
+  <h2>8. Conclusion</h2>
+  <p>This project successfully deployed a functional VPN server using pfSense 2.7.2 on VMware Workstation. The setup used OpenVPN with AES-256 encryption, certificate-based authentication, and cross-platform client support — all at no cost using the Community Edition.</p>
+  <p>pfSense proves to be a solid, flexible solution for both learning environments and real-world deployments, combining a powerful FreeBSD foundation with an easy-to-use web interface.</p>
+
+  <h3>Key Achievements</h3>
+  <ul>
+    <li>Installed and configured pfSense 2.7.2 on VMware Workstation</li>
+    <li>Configured WAN (NAT) and LAN (Host-Only) network interfaces</li>
+    <li>Accessed WebConfigurator at <code>https://192.168.1.1</code></li>
+    <li>Set up OpenVPN Remote Access Server with the built-in wizard</li>
+    <li>Created CA, server certificate, and VPN user account</li>
+    <li>Demonstrated live VPN connection with encrypted tunnel to LAN</li>
+  </ul>
+
+  <hr class="section-divider">
+
+  <h3>References</h3>
+  <ul>
+    <li>pfSense Docs: <code>docs.netgate.com/pfsense/en/latest/</code></li>
+    <li>OpenVPN: <code>openvpn.net</code></li>
+    <li>VMware Docs: <code>docs.vmware.com/en/VMware-Workstation-Pro/</code></li>
+  </ul>
+
+</div>
+</body>
+</html>
